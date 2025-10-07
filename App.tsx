@@ -14,6 +14,8 @@ import {
   useWindowDimensions,
   Platform,
   StatusBar as RNStatusBar,
+  Animated,
+  Easing,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import {
@@ -30,6 +32,19 @@ import {
   deleteStatus,
   type StatusItem,
 } from './src/api/client';
+
+// Central theme palette
+const palette = {
+  bg: '#f8fafc',
+  cardBg: '#ffffff',
+  border: '#e2e8f0',
+  text: '#0f172a',
+  textMuted: '#64748b',
+  placeholder: '#94a3b8',
+  primary: '#2563eb',
+  danger: '#ef4444',
+  success: '#10b981',
+};
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
@@ -207,6 +222,18 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
   const { width } = useWindowDimensions();
   const contentMaxWidth = useMemo(() => (width >= 900 ? 800 : width >= 600 ? 680 : undefined), [width]);
   const headerInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight || 0) : 0;
+  const likeAnimRef = React.useRef<Record<string | number, Animated.Value>>({});
+  const getLikeAnim = (id: string | number) => {
+    if (!likeAnimRef.current[id]) likeAnimRef.current[id] = new Animated.Value(1);
+    return likeAnimRef.current[id];
+  };
+  const pulseLike = (id: string | number) => {
+    const v = getLikeAnim(id);
+    Animated.sequence([
+      Animated.timing(v, { toValue: 1.15, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 1, duration: 120, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+    ]).start();
+  };
 
   const load = useCallback(async () => {
     try {
@@ -334,13 +361,25 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
           if (updated) {
             const final = withLikeState([updated], myUserId, myEmail)[0];
             if (!myUserId && !myEmail) { final.isLiked = false; }
-            setStatuses((prev) => prev.map((x) => (x.id === s.id ? final : x)));
+            setStatuses((prev) => prev.map((x) => {
+              if (x.id !== s.id) return x as any;
+              const next = { ...(final as any) } as any;
+              const mergedComments2 = mergeCommentsPreserveNames((x as any).comments, (next as any).comments, (next as any).raw);
+              if (mergedComments2) (next as any).comments = mergedComments2;
+              return next as any;
+            }));
           } else {
             const fresh = await fetchStatusById(s.id, token);
             if (fresh) {
               const final = withLikeState([fresh], myUserId, myEmail)[0];
               if (!myUserId && !myEmail) { final.isLiked = false; }
-              setStatuses((prev) => prev.map((x) => (x.id === s.id ? final : x)));
+              setStatuses((prev) => prev.map((x) => {
+                if (x.id !== s.id) return x as any;
+                const next = { ...(final as any) } as any;
+                const mergedComments2 = mergeCommentsPreserveNames((x as any).comments, (next as any).comments, (next as any).raw);
+                if (mergedComments2) (next as any).comments = mergedComments2;
+                return next as any;
+              }));
             }
           }
         } catch (e: any) {
@@ -360,13 +399,25 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
           if (updated) {
             const final = withLikeState([updated], myUserId, myEmail)[0];
             if (!myUserId && !myEmail) { final.isLiked = true; }
-            setStatuses((prev) => prev.map((x) => (x.id === s.id ? final : x)));
+            setStatuses((prev) => prev.map((x) => {
+              if (x.id !== s.id) return x as any;
+              const next = { ...(final as any) } as any;
+              const mergedComments2 = mergeCommentsPreserveNames((x as any).comments, (next as any).comments, (next as any).raw);
+              if (mergedComments2) (next as any).comments = mergedComments2;
+              return next as any;
+            }));
           } else {
             const fresh = await fetchStatusById(s.id, token);
             if (fresh) {
               const final = withLikeState([fresh], myUserId, myEmail)[0];
               if (!myUserId && !myEmail) { final.isLiked = true; }
-              setStatuses((prev) => prev.map((x) => (x.id === s.id ? final : x)));
+              setStatuses((prev) => prev.map((x) => {
+                if (x.id !== s.id) return x as any;
+                const next = { ...(final as any) } as any;
+                const mergedComments2 = mergeCommentsPreserveNames((x as any).comments, (next as any).comments, (next as any).raw);
+                if (mergedComments2) (next as any).comments = mergedComments2;
+                return next as any;
+              }));
             }
           }
         } catch (e: any) {
@@ -394,6 +445,8 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
               const mergedLikes = mergeLikeArrays(prevLikes, newLikes, myUserId, myEmail, !!x.isLiked);
               if (mergedLikes) mergedRaw.like = mergedLikes;
               const merged = { ...x, ...full, raw: mergedRaw } as StatusItem;
+              const mergedComments = mergeCommentsPreserveNames((x as any).comments, (merged as any).comments, (merged as any).raw);
+              if (mergedComments) (merged as any).comments = mergedComments;
               const final = withLikeState([merged], myUserId, myEmail)[0];
               // If still unknown who I am, preserve optimistic isLiked
               if (!myUserId && !myEmail) final.isLiked = x.isLiked;
@@ -482,8 +535,10 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
         </View>
         <Text style={styles.content}>{item.content}</Text>
         <View style={styles.actions}>
-          <TouchableOpacity onPress={() => toggleLike(item)} style={styles.actionBtn} disabled={!!likePending[item.id]}>
-            <Text style={[styles.actionText, item.isLiked && styles.liked]}>{likePending[item.id] ? '...' : (item.isLiked ? 'Unlike' : 'Like')}</Text>
+          <TouchableOpacity onPress={() => { pulseLike(item.id); toggleLike(item); }} style={styles.actionBtn} disabled={!!likePending[item.id]}>
+            <Animated.Text style={[styles.actionText, item.isLiked && styles.liked, { transform: [{ scale: getLikeAnim(item.id) }] }]}>
+              {item.isLiked ? '♥ เลิกถูกใจ' : '♡ ถูกใจ'}
+            </Animated.Text>
           </TouchableOpacity>
           <Text style={styles.meta}>{likeCountDisplay(item)} likes • {(item.comments?.length ?? 0).toString()} comments</Text>
           <TouchableOpacity
@@ -501,6 +556,7 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
             <View style={styles.commentComposer}>
               <TextInput
                 style={styles.commentInput}
+                placeholderTextColor="#94a3b8"
                 placeholder="เขียนคอมเมนต์..."
                 value={commentInputs[item.id] || ''}
                 onChangeText={(t) => setCommentInputs((m) => ({ ...m, [item.id]: t }))}
@@ -567,6 +623,7 @@ function FeedScreen({ token, onSignOut, onOpenMembers }: { token: string; onSign
       <View style={[styles.composerWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}>
         <TextInput
           style={styles.composerInput}
+          placeholderTextColor="#94a3b8"
           placeholder="กำลังคิดอะไรอยู่..."
           value={composer}
           onChangeText={setComposer}
@@ -725,6 +782,27 @@ function dedupeLikes(likeArr: any[]): any[] {
   return out;
 }
 
+function mergeCommentsPreserveNames(prev?: any[], next?: any[], statusRaw?: any): any[] | undefined {
+  if (!Array.isArray(next)) return prev;
+  const prevMap = new Map<string, any>();
+  if (Array.isArray(prev)) {
+    for (const p of prev) {
+      const id = (p as any)?.id;
+      if (id != null) prevMap.set(String(id), p);
+    }
+  }
+  const rawMap = buildRawCommentMap({ raw: statusRaw });
+  return next.map((c: any) => {
+    if (!c) return c;
+    const id = String((c?.id ?? c?._id ?? c?.commentId ?? c?.uuid) ?? '');
+    const old = prevMap.get(id);
+    const keep = old?.authorName && String(old.authorName).trim().length > 0 ? old.authorName : undefined;
+    if (keep) return { ...c, authorName: keep };
+    const via = nameFromUser(c?.raw?.createdBy) || nameFromUser(rawMap.get(id)?.createdBy);
+    return via ? { ...c, authorName: via } : c;
+  });
+}
+
 function withLikeState(items: StatusItem[], myUserId?: string, myEmail?: string) {
   return items.map((s) => {
     const likeArr: any[] | undefined = (s as any).raw?.like;
@@ -812,6 +890,7 @@ function MembersScreen({ token, onBack }: { token: string; onBack: () => void })
       <View style={[styles.composerWrap, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}> 
         <TextInput
           style={styles.input}
+          placeholderTextColor="#94a3b8"
           placeholder="ปีที่ศึกษา (เช่น 2566)"
           keyboardType="number-pad"
           value={year}
@@ -997,6 +1076,7 @@ const styles = StyleSheet.create({
   },
   content: {
     fontSize: 16,
+    lineHeight: 22,
     color: '#111',
     marginBottom: 8,
   },
@@ -1060,6 +1140,8 @@ const styles = StyleSheet.create({
   },
   commentText: {
     color: '#111',
+    fontSize: 15,
+    lineHeight: 20,
   },
   countText: { color: '#64748b', marginLeft: 8 },
   memberItem: {
@@ -1081,6 +1163,8 @@ const styles = StyleSheet.create({
   memberName: { fontWeight: '700', color: '#0f172a' },
   memberEmail: { color: '#64748b', fontSize: 12 },
 });
+
+
 
 
 
